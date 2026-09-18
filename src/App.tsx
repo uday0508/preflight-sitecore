@@ -12,7 +12,7 @@ export default function App() {
           <Route path="/dashboard-widget" element={<DashboardWidget />} />
           <Route path="/pages-context-panel" element={<PagesContextPanel />} />
           <Route path="/custom-field" element={<CustomField />} />
-          <Route path="*" element={<Navigate to="/pages-context-panel" replace />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
     </MarketplaceClientProvider>

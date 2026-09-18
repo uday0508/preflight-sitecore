@@ -1,24 +1,31 @@
 import { useEffect, useState, useCallback } from "react";
 import { useMarketplace } from "@/components/providers/MarketplaceContext";
-import { useAppContext } from "./useAppContext";
-import { usePagesContext } from "./usePagesContext";
-import { runPageChecks } from "@/lib/preflight/engine";
-import type { PreflightResult } from "@/lib/preflight/types";
+import { runPageChecks, computeVerdict } from "@/lib/preflight/engine";
+import { derivePreflightContext } from "@/lib/preflight/context";
+import type { PreflightResult, Verdict } from "@/lib/preflight/types";
 
 export function usePreflight() {
-  const { client, isInitialized, pagesContext } = useMarketplace();
-  const { sitecoreContextId, isReady: appReady } = useAppContext();
-  const { pageId, siteName, language, isReady: pagesReady } = usePagesContext();
+  const {
+    client,
+    appContext,
+    pagesContext,
+    pageHtml,
+    isInitialized,
+  } = useMarketplace();
 
   const [results, setResults] = useState<PreflightResult[]>([]);
+  const [verdict, setVerdict] = useState<Verdict>("ready");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trigger, setTrigger] = useState(0);
 
   const rerun = useCallback(() => setTrigger((n) => n + 1), []);
 
+  const ctx = derivePreflightContext(appContext, pagesContext);
+
   useEffect(() => {
-    if (!client || !isInitialized || !appReady || !pagesReady) return;
+    if (!client || !isInitialized) return;
+    if (!ctx.sitecoreContextId || !ctx.pageId) return;
 
     let cancelled = false;
 
@@ -27,13 +34,14 @@ export function usePreflight() {
       setError(null);
       try {
         const res = await runPageChecks(client, {
-          sitecoreContextId: sitecoreContextId!,
-          pageId: pageId!,
-          siteName,
-          language,
+          context: ctx,
           pageContext: pagesContext,
+          pageHtml,
         });
-        if (!cancelled) setResults(res);
+        if (!cancelled) {
+          setResults(res);
+          setVerdict(computeVerdict(res));
+        }
       } catch (err) {
         if (!cancelled)
           setError(err instanceof Error ? err.message : "Preflight failed");
@@ -45,18 +53,18 @@ export function usePreflight() {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     client,
     isInitialized,
-    appReady,
-    pagesReady,
-    sitecoreContextId,
-    pageId,
-    siteName,
-    language,
+    ctx.sitecoreContextId,
+    ctx.pageId,
+    ctx.siteName,
+    ctx.language,
     pagesContext,
+    pageHtml,
     trigger,
   ]);
 
-  return { results, loading, error, rerun, isRerunning: loading };
+  return { results, verdict, loading, error, rerun, isRerunning: loading };
 }

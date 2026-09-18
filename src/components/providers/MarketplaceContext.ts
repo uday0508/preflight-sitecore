@@ -9,6 +9,7 @@ export interface MarketplaceContextValue {
   client: ClientSDK | null;
   appContext: ApplicationContext | null;
   pagesContext: PagesContext | null;
+  pageHtml: string | null;
   isInitialized: boolean;
   isLoading: boolean;
   error: Error | null;
@@ -18,6 +19,7 @@ export const MarketplaceContext = createContext<MarketplaceContextValue>({
   client: null,
   appContext: null,
   pagesContext: null,
+  pageHtml: null,
   isInitialized: false,
   isLoading: true,
   error: null,

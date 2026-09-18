@@ -7,7 +7,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function PagesContextPanel() {
   const { pagesContext, isInitialized, error: sdkError } = useMarketplace();
-  const { results, loading, error, rerun, isRerunning } = usePreflight();
+  const { results, verdict, loading, error, rerun, isRerunning } =
+    usePreflight();
 
   if (sdkError) {
     return (
@@ -37,13 +38,13 @@ export default function PagesContextPanel() {
     );
   }
 
-  const pageName =
-    (pagesContext as any)?.pageInfo?.name ?? "Current page";
+  const pageName = (pagesContext as any)?.pageInfo?.name ?? "Current page";
 
   return (
     <ErrorBoundary>
       <PagePreflightPanel
         results={results}
+        verdict={verdict}
         pageName={pageName}
         onRerun={rerun}
         isRerunning={isRerunning}

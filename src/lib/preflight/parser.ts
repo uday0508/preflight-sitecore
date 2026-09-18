@@ -1,13 +1,9 @@
-/**
- * Parser for Sitecore's presentationDetails JSON string.
- * Also provides human-readable formatting helpers for marketer-facing output.
- */
-
 export interface ParsedAction {
   type: "datasource" | "rendering" | "parameters" | "hide" | "unknown";
   targetId: string | null;
-  targetName: string | null; // populated later by resolver
+  targetName: string | null;
   detail: string;
+  rawActionId: string | null;
 }
 
 export interface ParsedVariant {
@@ -16,6 +12,7 @@ export interface ParsedVariant {
   isDefault: boolean;
   audienceHint: string | null;
   actions: ParsedAction[];
+  rawActions: any[];
 }
 
 export interface ParsedRendering {
@@ -41,6 +38,8 @@ const ACTION_TYPES: Record<string, ParsedAction["type"]> = {
   "{7B578B65-BD2F-4C7C-9A24-DAE3E98B4F23}": "rendering",
   "{525C7B5A-8FD2-4B99-89F6-4F3F6D23BB02}": "parameters",
   "{B4A4B7B4-5B4B-4B4B-9B4B-4B4B4B4B4B4B}": "hide",
+  "{6879B56F-9B0C-4B8F-9E6E-A12FCEBB71B0}": "hide",
+  "{F5C9C8D3-2EE6-4A3B-9C21-5E3B1A1C8F4E}": "hide",
 };
 
 const PLACEHOLDER_FRIENDLY_NAMES: Record<string, string> = {
@@ -50,39 +49,33 @@ const PLACEHOLDER_FRIENDLY_NAMES: Record<string, string> = {
   "headless-sidebar": "Sidebar",
 };
 
-function extractAudienceHint(conditionsXml: string): string | null {
-  if (!conditionsXml) return null;
+const KNOWN_CONDITION_TYPES: Record<string, string> = {
+  "{4888ABBB-F17D-4485-B14B-842413F88732}": "Everyone (default)",
+};
 
-  const conditionMap: Record<string, string> = {
-    "{8E7426A4-12ED-4C44-8625-E7191860E726}": "Campaign visitors",
-    "{4888ABBB-F17D-4485-B14B-842413F88732}": "Default (everyone)",
-    "{F7EBB0F4-A3DC-4C95-9C79-1D1F420B3C6B}": "Returning customers",
-    "{4A23B384-130A-400D-AB99-FB7210D3A71E}": "Event registrants",
-  };
-
-  for (const [guid, friendly] of Object.entries(conditionMap)) {
-    if (conditionsXml.includes(guid)) return friendly;
-  }
-
-  const variantMatch = conditionsXml.match(/VariantName="([^"]+)"/);
-  if (variantMatch) return `Audience: ${variantMatch[1].slice(0, 8)}`;
-
-  const uidMatch = conditionsXml.match(/condition uid="([^"]+)"/);
-  if (uidMatch) return `Rule ${uidMatch[1].slice(0, 8)}`;
-
-  return null;
-}
-
-function extractVariantNameFromConditions(conditionsXml: string): string | null {
+export function extractVariantIdFromConditions(
+  conditionsXml: string
+): string | null {
   const match = conditionsXml?.match(/VariantName="([^"]+)"/);
   return match ? match[1] : null;
+}
+
+export function extractAudienceHint(conditionsXml: string): string | null {
+  if (!conditionsXml) return null;
+  for (const [guid, friendly] of Object.entries(KNOWN_CONDITION_TYPES)) {
+    if (conditionsXml.includes(guid)) return friendly;
+  }
+  return null;
 }
 
 function parseActions(actions: any[]): ParsedAction[] {
   if (!Array.isArray(actions)) return [];
 
   return actions.map((a: any) => {
-    const type = ACTION_TYPES[a?.id] ?? "unknown";
+    const rawActionId = a?.id ?? null;
+    const type = rawActionId
+      ? ACTION_TYPES[rawActionId] ?? "unknown"
+      : "unknown";
 
     if (type === "datasource") {
       const ds = a?.dataSource ?? null;
@@ -90,45 +83,45 @@ function parseActions(actions: any[]): ParsedAction[] {
         type: "datasource",
         targetId: ds,
         targetName: null,
-        detail: ds ? `Swap content to ${readableDatasource(ds)}` : "Swap content",
+        detail: ds ? readableDatasource(ds) : "Different content",
+        rawActionId,
       };
     }
-
     if (type === "rendering") {
-      const rid = a?.renderingItem ?? null;
       return {
         type: "rendering",
-        targetId: rid,
+        targetId: a?.renderingItem ?? null,
         targetName: null,
-        detail: rid
-          ? `Swap component (rendering ${rid.slice(0, 8)})`
-          : "Swap component",
+        detail: "Different component",
+        rawActionId,
       };
     }
-
     if (type === "parameters") {
       return {
         type: "parameters",
         targetId: null,
         targetName: null,
-        detail: "Adjust component styling",
+        detail: "Style variant",
+        rawActionId,
       };
     }
-
     if (type === "hide") {
       return {
         type: "hide",
         targetId: null,
         targetName: null,
-        detail: "Hide this component for the audience",
+        detail: "Hidden",
+        rawActionId,
       };
     }
-
     return {
       type: "unknown",
-      targetId: a?.id ?? null,
+      targetId: null,
       targetName: null,
-      detail: "Unrecognized action",
+      detail: `Unmapped action ${
+        rawActionId ? rawActionId.slice(0, 8) : "unknown"
+      }`,
+      rawActionId,
     };
   });
 }
@@ -136,7 +129,9 @@ function parseActions(actions: any[]): ParsedAction[] {
 export function readablePlaceholder(key: string): string {
   if (!key) return "Unknown placeholder";
   const base = key.replace(/-\d+$/, "").replace(/\/[^/]+$/, "");
-  return PLACEHOLDER_FRIENDLY_NAMES[base] ?? PLACEHOLDER_FRIENDLY_NAMES[key] ?? key;
+  return (
+    PLACEHOLDER_FRIENDLY_NAMES[base] ?? PLACEHOLDER_FRIENDLY_NAMES[key] ?? key
+  );
 }
 
 export function readableDatasource(ds: string | null): string {
@@ -180,16 +175,18 @@ export function parsePresentationDetails(
       const rules = r?.personalization?.ruleSet?.rules ?? [];
       const variants: ParsedVariant[] = Array.isArray(rules)
         ? rules.map((rule: any) => {
-            const nameFromConditions = extractVariantNameFromConditions(
+            const variantId = extractVariantIdFromConditions(
               rule?.conditions ?? ""
             );
             const isDefault = rule?.uniqueId === DEFAULT_VARIANT_UID;
+            const rawActions = Array.isArray(rule?.actions) ? rule.actions : [];
             return {
-              id: nameFromConditions ?? rule?.uniqueId ?? "unknown",
-              name: rule?.name ?? nameFromConditions ?? "Unnamed variant",
+              id: variantId ?? rule?.uniqueId ?? "unknown",
+              name: rule?.name ?? variantId ?? "Unnamed variant",
               isDefault,
               audienceHint: extractAudienceHint(rule?.conditions ?? ""),
-              actions: parseActions(rule?.actions ?? []),
+              actions: parseActions(rawActions),
+              rawActions,
             };
           })
         : [];

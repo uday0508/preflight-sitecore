@@ -1,5 +1,5 @@
 import type { ClientSDK } from "@sitecore-marketplace-sdk/client";
-import type { PreflightResult, CheckItem } from "./types";
+import type { PreflightResult, CheckItem, VariantDisplay } from "./types";
 import { GRAPHQL_QUERIES } from "@/lib/sitecore/queries";
 import { formatSitecoreDate } from "@/lib/utils";
 import {
@@ -8,7 +8,9 @@ import {
   readablePlaceholder,
   readableDatasource,
 } from "./parser";
-import { resolveItemNames } from "./resolver";
+import { diag, dumpCheckResult } from "./diagnostics";
+import { buildPersonalizeUrl } from "./personalize-url";
+import type { PreflightContext } from "./context";
 
 const now = () => new Date().toISOString();
 
@@ -43,8 +45,61 @@ function getField(item: any, fieldName: string, alias?: string): string | null {
   return match?.value ?? null;
 }
 
+/**
+ * Reads the raw actions and produces a human-readable summary of what
+ * this variant changes. Uses rendering parameters (FormId, Styles)
+ * and datasource paths that are already meaningful to marketers.
+ */
+function summarizeOutcome(rawActions: any[]): string {
+  if (!Array.isArray(rawActions) || rawActions.length === 0) {
+    return "Same as default";
+  }
+
+  const parts: string[] = [];
+
+  for (const action of rawActions) {
+    const id = action?.id;
+
+    if (
+      id === "{B4A4B7B4-5B4B-4B4B-9B4B-4B4B4B4B4B4B}" ||
+      id === "{6879B56F-9B0C-4B8F-9E6E-A12FCEBB71B0}" ||
+      id === "{F5C9C8D3-2EE6-4A3B-9C21-5E3B1A1C8F4E}"
+    ) {
+      return "Hidden";
+    }
+
+    if (id === "{0F3C6BEC-E56B-4875-93D7-2846A75881D2}") {
+      const ds = action?.dataSource;
+      if (typeof ds === "string" && ds.startsWith("local:")) {
+        const name = ds
+          .replace(/^local:\/?\/?Data\//i, "")
+          .replace(/^local:\/?/, "");
+        parts.push(`content "${name}"`);
+      } else if (typeof ds === "string" && /^[0-9a-f-]{36}$/i.test(ds)) {
+        parts.push("different content");
+      }
+    }
+
+    if (id === "{7B578B65-BD2F-4C7C-9A24-DAE3E98B4F23}") {
+      parts.push("different component");
+    }
+
+    if (id === "{525C7B5A-8FD2-4B99-89F6-4F3F6D23BB02}") {
+      const params = action?.renderingParameters ?? {};
+      if (params.FormId) {
+        parts.push(`form ${String(params.FormId).split("-")[0]}`);
+      }
+      if (params.Styles) parts.push(`style "${params.Styles}"`);
+      if (params.CSSStyles) parts.push(`css "${params.CSSStyles}"`);
+    }
+  }
+
+  const unique = Array.from(new Set(parts));
+  return unique.length > 0 ? unique.join(" · ") : "Same as default";
+}
+
 /* ------------------------------------------------------------------ */
-/* CHECK 1 — Dynamic placeholder consistency                           */
+/* CHECK 1 — Dynamic placeholders                                      */
 /* ------------------------------------------------------------------ */
 
 export function checkDynamicPlaceholders(pageContext: any): PreflightResult {
@@ -55,7 +110,7 @@ export function checkDynamicPlaceholders(pageContext: any): PreflightResult {
     parsePresentationDetails(presentationDetails);
 
   if (parseError) {
-    return {
+    const result: PreflightResult = {
       checkId: "dynamic-placeholder-consistency",
       label: "Dynamic placeholders",
       severity: "UNKNOWN",
@@ -64,49 +119,46 @@ export function checkDynamicPlaceholders(pageContext: any): PreflightResult {
       checkContext: {},
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   if (placeholderKeys.length === 0) {
-    return {
+    const result: PreflightResult = {
       checkId: "dynamic-placeholder-consistency",
       label: "Dynamic placeholders",
       severity: "INFO",
-      message: "This page has no placeholders yet",
+      message: "No placeholders on this page",
       items: [],
       checkContext: {},
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const dynamicKeys = placeholderKeys.filter(isDynamicPlaceholder);
 
-  if (dynamicKeys.length === 0) {
-    return {
-      checkId: "dynamic-placeholder-consistency",
-      label: "Dynamic placeholders",
-      severity: "PASS",
-      message: `${placeholderKeys.length} placeholders, all standard layout`,
-      items: [],
-      checkContext: {},
-      ranAt: now(),
-    };
-  }
-
-  return {
+  const result: PreflightResult = {
     checkId: "dynamic-placeholder-consistency",
     label: "Dynamic placeholders",
     severity: "PASS",
-    message: `${dynamicKeys.length} dynamic placeholder${
-      dynamicKeys.length === 1 ? "" : "s"
-    } ready for personalization`,
+    message:
+      dynamicKeys.length === 0
+        ? `${placeholderKeys.length} standard placeholders`
+        : `${dynamicKeys.length} dynamic placeholder${
+            dynamicKeys.length === 1 ? "" : "s"
+          }`,
     items: dynamicKeys.map((k) => ({
       id: k,
       name: readablePlaceholder(k),
-      detail: "Ready to hold different content per visitor",
+      detail: "Ready for personalization",
     })),
     checkContext: {},
     ranAt: now(),
   };
+  dumpCheckResult(result.checkId, result);
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
@@ -116,7 +168,9 @@ export function checkDynamicPlaceholders(pageContext: any): PreflightResult {
 export async function checkPagePersonalization(
   client: ClientSDK,
   sitecoreContextId: string,
-  pageContext: any
+  pageContext: any,
+  pageHtml: string | null,
+  context: PreflightContext
 ): Promise<PreflightResult> {
   const presentationDetails =
     pageContext?.pageInfo?.presentationDetails ?? null;
@@ -125,120 +179,109 @@ export async function checkPagePersonalization(
     parsePresentationDetails(presentationDetails);
 
   if (parseError) {
-    return {
+    const result: PreflightResult = {
       checkId: "page-personalization-validity",
       label: "Page personalization",
       severity: "UNKNOWN",
       message: parseError,
       items: [],
-      checkContext: {},
+      checkContext: { pageId: context.pageId ?? undefined },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const personalized = renderings.filter((r) => r.isPersonalized);
 
   if (personalized.length === 0) {
-    return {
+    const result: PreflightResult = {
       checkId: "page-personalization-validity",
       label: "Page personalization",
       severity: "INFO",
-      message: "Every visitor sees the same content on this page",
+      message: "Same content for every visitor",
       items: [],
-      checkContext: {},
+      checkContext: { pageId: context.pageId ?? undefined },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
-  // Collect all GUIDs referenced in actions so we can resolve them
-  const guidsToResolve = new Set<string>();
-  for (const r of personalized) {
-    for (const v of r.variants) {
-      for (const a of v.actions) {
-        if (a.targetId && /^[0-9a-f-]{36}$/i.test(a.targetId)) {
-          guidsToResolve.add(a.targetId);
-        } else if (a.targetId && /^[0-9a-f]{8}-/i.test(a.targetId)) {
-          guidsToResolve.add(a.targetId);
-        }
-      }
-    }
-  }
-
-  let nameMap = new Map<string, string | null>();
-  if (guidsToResolve.size > 0) {
-    nameMap = await resolveItemNames(
-      client,
-      sitecoreContextId,
-      Array.from(guidsToResolve)
-    );
-  }
+  // The personalize URL is page-scoped — same for every variant on the page.
+  const personalizeUrl = buildPersonalizeUrl({
+    pageId: context.pageId,
+    language: context.language,
+    siteName: context.siteName,
+    version: context.version,
+    organizationId: context.organizationId,
+    tenantName: context.tenantName,
+  });
 
   const items: CheckItem[] = [];
-  const audiences = new Set<string>();
+  let totalAudiences = 0;
 
   for (const r of personalized) {
     const phName = readablePlaceholder(r.placeholderKey);
     const currentDs = readableDatasource(r.dataSource);
-    const hasDefault = r.variants.some((v) => v.isDefault);
     const nonDefault = r.variants.filter((v) => !v.isDefault);
+    const defaultVariant = r.variants.find((v) => v.isDefault);
 
     if (nonDefault.length === 0) continue;
 
-    const lines: string[] = [];
+    totalAudiences += nonDefault.length;
 
-    for (const v of nonDefault) {
-      const audience = v.audienceHint ?? "Targeted visitors";
-      audiences.add(audience);
+    const variantDisplays: VariantDisplay[] = [];
 
-      // Summarize actions into marketer language
-      const actionSummaries: string[] = [];
-      for (const a of v.actions) {
-        if (a.type === "hide") {
-          actionSummaries.push("Hides this component");
-        } else if (a.type === "datasource") {
-          const resolved = a.targetId ? nameMap.get(a.targetId) : null;
-          const name =
-            resolved ??
-            (a.targetId ? readableDatasource(a.targetId) : "different content");
-          actionSummaries.push(`Shows "${name}"`);
-        } else if (a.type === "rendering") {
-          const resolved = a.targetId ? nameMap.get(a.targetId) : null;
-          const name =
-            resolved ??
-            (a.targetId ? `component ${a.targetId.slice(0, 8)}` : "different component");
-          actionSummaries.push(`Swaps to "${name}"`);
-        } else if (a.type === "parameters") {
-          actionSummaries.push("Adjusts styling");
-        }
-      }
-
-      const actionText =
-        actionSummaries.length > 0
-          ? actionSummaries.join(" · ")
-          : "No visible change";
-
-      lines.push(`${audience} → ${actionText}`);
+    if (defaultVariant) {
+      variantDisplays.push({
+        label: "Default",
+        audience: "Everyone",
+        outcome: currentDs,
+        isDefault: true,
+        personalizeUrl: null,
+      });
     }
 
-    if (!hasDefault) {
-      lines.unshift(
-        "⚠ No default — visitors who don't match see a blank space"
-      );
-    }
+    nonDefault.forEach((v, idx) => {
+      const letter = String.fromCharCode(65 + idx);
+      const outcome = summarizeOutcome(v.rawActions);
+
+      variantDisplays.push({
+        label: `Variant ${letter}`,
+        audience: v.audienceHint ?? "Targeted visitors",
+        outcome,
+        isDefault: false,
+        personalizeUrl,
+      });
+    });
 
     items.push({
       id: r.instanceId,
-      name: `${phName}: ${currentDs}`,
-      detail: lines.join("\n"),
+      name: `${phName} — ${currentDs}`,
+      detail: "",
+      variants: variantDisplays,
     });
   }
 
-  const audienceText =
-    audiences.size === 1
-      ? "1 audience targeted"
-      : `${audiences.size} audiences targeted`;
+  if (items.length === 0) {
+    const result: PreflightResult = {
+      checkId: "page-personalization-validity",
+      label: "Page personalization",
+      severity: "INFO",
+      message: "No variants configured on personalized components",
+      items: [],
+      checkContext: { pageId: context.pageId ?? undefined },
+      ranAt: now(),
+    };
+    dumpCheckResult(result.checkId, result);
+    return result;
+  }
 
-  return {
+  const audienceText =
+    totalAudiences === 1 ? "1 audience" : `${totalAudiences} audiences`;
+
+  const result: PreflightResult = {
     checkId: "page-personalization-validity",
     label: "Page personalization",
     severity: "PASS",
@@ -246,11 +289,12 @@ export async function checkPagePersonalization(
       items.length === 1 ? "" : "s"
     } personalized, ${audienceText}`,
     items,
-    checkContext: {},
+    checkContext: { pageId: context.pageId ?? undefined },
     ranAt: now(),
   };
+  dumpCheckResult(result.checkId, result);
+  return result;
 }
-
 /* ------------------------------------------------------------------ */
 /* CHECK 3 — Analytics tracking                                        */
 /* ------------------------------------------------------------------ */
@@ -271,78 +315,76 @@ export async function checkTrackingConfig(
 
   const item = data?.data?.item;
   if (!item) {
-    return {
+    const result: PreflightResult = {
       checkId: "analytics-tracking-config",
       label: "Analytics tracking",
       severity: "UNKNOWN",
-      message: "Could not read this page from Sitecore",
+      message: "Could not read this page",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const trackingRaw = getField(item, "__Tracking", "tracking");
 
   if (trackingRaw === null) {
-    return {
+    const result: PreflightResult = {
       checkId: "analytics-tracking-config",
       label: "Analytics tracking",
       severity: "INFO",
-      message: "No page-specific tracking profile — site defaults will apply",
+      message: "Site defaults apply",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   try {
     const tracking = JSON.parse(trackingRaw);
     const profiles = tracking?.tracking ?? [];
 
-    if (profiles.length === 0) {
-      return {
-        checkId: "analytics-tracking-config",
-        label: "Analytics tracking",
-        severity: "INFO",
-        message: "Tracking is on but no profiles attached to this page",
-        items: [],
-        checkContext: { pageId, site: siteName, language },
-        ranAt: now(),
-      };
-    }
-
-    return {
+    const result: PreflightResult = {
       checkId: "analytics-tracking-config",
       label: "Analytics tracking",
-      severity: "PASS",
-      message: `${profiles.length} tracking profile${
-        profiles.length === 1 ? "" : "s"
-      } will capture visitor activity`,
+      severity: profiles.length > 0 ? "PASS" : "INFO",
+      message:
+        profiles.length > 0
+          ? `${profiles.length} profile${
+              profiles.length === 1 ? "" : "s"
+            } tracking activity`
+          : "No profiles attached",
       items: profiles.map((p: any, i: number) => ({
         id: p?.id ?? `profile-${i}`,
         name: p?.name ?? `Profile ${i + 1}`,
-        detail: "Events from this page flow into this profile",
+        detail: "Captures visitor activity on this page",
       })),
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   } catch {
-    return {
+    const result: PreflightResult = {
       checkId: "analytics-tracking-config",
       label: "Analytics tracking",
       severity: "WARNING",
-      message:
-        "Tracking data is present but unreadable — analytics may not capture this page",
+      message: "Tracking data unreadable",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 }
 
 /* ------------------------------------------------------------------ */
-/* CHECK 4 — Render / delivery sync                                    */
+/* CHECK 4 — Publish status                                            */
 /* ------------------------------------------------------------------ */
 
 export async function checkRenderDrift(
@@ -361,85 +403,83 @@ export async function checkRenderDrift(
 
   const item = data?.data?.item;
   if (!item) {
-    return {
+    const result: PreflightResult = {
       checkId: "render-drift",
       label: "Publish status",
       severity: "UNKNOWN",
-      message: "Could not read publish status from Sitecore",
+      message: "Could not read publish status",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const updated = item?.updated?.value;
   const published = item?.published?.value;
 
   if (!updated) {
-    return {
+    const result: PreflightResult = {
       checkId: "render-drift",
       label: "Publish status",
       severity: "UNKNOWN",
-      message: "This page has no edit history",
+      message: "No edit history",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   if (!published) {
-    return {
+    const result: PreflightResult = {
       checkId: "render-drift",
       label: "Publish status",
       severity: "WARNING",
-      message:
-        "This page has never been published — visitors cannot see it yet",
+      message: "Never published — visitors see nothing",
       items: [
         {
           id: pageId,
           name: item.name ?? "Page",
-          detail: `Last edited ${formatSitecoreDate(updated)}, never published`,
+          detail: `Last edited ${formatSitecoreDate(updated)}`,
         },
       ],
       checkContext: { pageId, site: siteName, language },
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const isStale = new Date(updated) > new Date(published);
 
-  if (isStale) {
-    return {
-      checkId: "render-drift",
-      label: "Publish status",
-      severity: "WARNING",
-      message:
-        "Edits since last publish — visitors still see the older version",
-      items: [
-        {
-          id: pageId,
-          name: item.name ?? "Page",
-          detail: `Edited ${formatSitecoreDate(updated)}, last published ${formatSitecoreDate(published)}`,
-        },
-      ],
-      checkContext: { pageId, site: siteName, language },
-      ranAt: now(),
-    };
-  }
-
-  return {
+  const result: PreflightResult = {
     checkId: "render-drift",
     label: "Publish status",
-    severity: "PASS",
-    message: `Live version is up to date (published ${formatSitecoreDate(published)})`,
-    items: [],
+    severity: isStale ? "WARNING" : "PASS",
+    message: isStale
+      ? "Edits since last publish"
+      : `Up to date — live since ${formatSitecoreDate(published)}`,
+    items: isStale
+      ? [
+          {
+            id: pageId,
+            name: item.name ?? "Page",
+            detail: `Edited ${formatSitecoreDate(updated)}, live since ${formatSitecoreDate(published)}`,
+          },
+        ]
+      : [],
     checkContext: { pageId, site: siteName, language },
     ranAt: now(),
   };
+  dumpCheckResult(result.checkId, result);
+  return result;
 }
 
 /* ------------------------------------------------------------------ */
-/* CHECK 5 — Component-level personalization                           */
+/* CHECK 5 — Personalization safety                                    */
 /* ------------------------------------------------------------------ */
 
 export function checkComponentPersonalization(
@@ -452,7 +492,7 @@ export function checkComponentPersonalization(
     parsePresentationDetails(presentationDetails);
 
   if (parseError) {
-    return {
+    const result: PreflightResult = {
       checkId: "component-personalization-integrity",
       label: "Personalization safety",
       severity: "UNKNOWN",
@@ -461,20 +501,24 @@ export function checkComponentPersonalization(
       checkContext: {},
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const personalized = renderings.filter((r) => r.isPersonalized);
 
   if (personalized.length === 0) {
-    return {
+    const result: PreflightResult = {
       checkId: "component-personalization-integrity",
       label: "Personalization safety",
       severity: "INFO",
-      message: "No personalization to verify on this page",
+      message: "Nothing to verify",
       items: [],
       checkContext: {},
       ranAt: now(),
     };
+    dumpCheckResult(result.checkId, result);
+    return result;
   }
 
   const issues: CheckItem[] = [];
@@ -488,45 +532,36 @@ export function checkComponentPersonalization(
     if (!hasDefault) {
       issues.push({
         id: `${r.instanceId}-no-default`,
-        name: `${phName}: ${dsName}`,
+        name: `${phName} — ${dsName}`,
         detail:
-          "Visitors who don't match any rule will see a blank space — add a default variant",
+          "Visitors who match no rule will see a blank space. Add a default variant.",
       });
     }
 
     if (nonDefault.length === 0) {
       issues.push({
         id: `${r.instanceId}-no-variants`,
-        name: `${phName}: ${dsName}`,
+        name: `${phName} — ${dsName}`,
         detail:
-          "Personalization is on but no targeted variants exist — no one will see different content",
+          "Personalization is on but no targeted variants exist. No one will see different content.",
       });
     }
   }
 
-  if (issues.length === 0) {
-    return {
-      checkId: "component-personalization-integrity",
-      label: "Personalization safety",
-      severity: "PASS",
-      message: `All ${personalized.length} personalized component${
-        personalized.length === 1 ? "" : "s"
-      } have a safe default`,
-      items: [],
-      checkContext: {},
-      ranAt: now(),
-    };
-  }
-
-  return {
+  const result: PreflightResult = {
     checkId: "component-personalization-integrity",
     label: "Personalization safety",
-    severity: "BLOCKER",
-    message: `${issues.length} issue${
-      issues.length === 1 ? "" : "s"
-    } — visitors may see blank or wrong content`,
+    severity: issues.length > 0 ? "BLOCKER" : "PASS",
+    message:
+      issues.length > 0
+        ? `${issues.length} issue${issues.length === 1 ? "" : "s"} found`
+        : `All ${personalized.length} component${
+            personalized.length === 1 ? "" : "s"
+          } safe`,
     items: issues,
     checkContext: {},
     ranAt: now(),
   };
+  dumpCheckResult(result.checkId, result);
+  return result;
 }

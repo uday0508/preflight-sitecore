@@ -1,10 +1,20 @@
 export type Severity = "BLOCKER" | "WARNING" | "INFO" | "PASS" | "UNKNOWN";
 
+export type Verdict = "ready" | "attention" | "blocked";
+
+export interface VariantDisplay {
+  label: string;        // "Variant A", "Variant B", ...
+  audience: string;     // audience hint or "Targeted visitors"
+  outcome: string;      // "form 1a21b07b · different component"
+  isDefault: boolean;
+  personalizeUrl: string | null;  // deep link
+}
+
 export interface CheckItem {
   id: string;
   name: string;
   detail: string;
-  path?: string;
+  variants?: VariantDisplay[];
 }
 
 export interface PreflightResult {
