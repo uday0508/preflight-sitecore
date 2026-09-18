@@ -23,13 +23,12 @@ export async function runPageChecks(
   const { sitecoreContextId, pageId, siteName, language, pageContext } = opts;
 
   const tasks = [
-    // Synchronous — parse from pageContext
     async () => checkDynamicPlaceholders(pageContext),
-    async () => checkPagePersonalization(pageContext),
-    // Async — query Authoring API
-    () => checkTrackingConfig(client, sitecoreContextId, pageId, siteName, language),
-    () => checkRenderDrift(client, sitecoreContextId, pageId, siteName, language),
-    // Synchronous — parse from pageContext
+    () => checkPagePersonalization(client, sitecoreContextId, pageContext),
+    () =>
+      checkTrackingConfig(client, sitecoreContextId, pageId, siteName, language),
+    () =>
+      checkRenderDrift(client, sitecoreContextId, pageId, siteName, language),
     async () => checkComponentPersonalization(pageContext),
   ];
 
@@ -41,7 +40,10 @@ export async function runPageChecks(
       checkId: `check-${i}`,
       label: "Check failed to run",
       severity: "UNKNOWN" as const,
-      message: r.reason instanceof Error ? r.reason.message : "Unknown error",
+      message:
+        r.reason instanceof Error
+          ? r.reason.message
+          : "This check could not complete",
       items: [],
       checkContext: { pageId, site: siteName, language },
       ranAt: new Date().toISOString(),
