@@ -1,4 +1,4 @@
-export type Severity = "BLOCKER" | "WARNING" | "INFO" | "PASS";
+export type Severity = "BLOCKER" | "WARNING" | "INFO" | "PASS" | "UNKNOWN";
 
 export interface CheckItem {
   id: string;
@@ -24,6 +24,7 @@ export interface PreflightResult {
 export interface SiteHealthSummary {
   blockers: number;
   warnings: number;
+  unknown: number;
   pagesScanned: number;
   totalChecks: number;
   passedChecks: number;

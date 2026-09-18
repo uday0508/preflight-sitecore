@@ -1,15 +1,12 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SeverityBadge } from "./SeverityBadge";
 import type { PreflightResult } from "@/lib/preflight/types";
+import { cn } from "@/lib/utils";
 
 export function CheckCard({ result }: { result: PreflightResult }) {
+  const isUnknown = result.severity === "UNKNOWN";
   return (
-    <Card>
+    <Card className={cn(isUnknown && "opacity-70 border-dashed")}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-sm">{result.label}</CardTitle>
@@ -23,9 +20,7 @@ export function CheckCard({ result }: { result: PreflightResult }) {
             {result.items.map((item) => (
               <li key={item.id} className="text-xs">
                 <span className="font-medium">{item.name}:</span>{" "}
-                <span className="text-muted-foreground">
-                  {item.detail}
-                </span>
+                <span className="text-muted-foreground">{item.detail}</span>
               </li>
             ))}
           </ul>

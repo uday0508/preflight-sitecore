@@ -39,8 +39,7 @@ export function useMarketplaceClient(): MarketplaceClientState {
       }
       setState({
         client: null,
-        error:
-          error instanceof Error ? error : new Error("SDK init failed"),
+        error: error instanceof Error ? error : new Error("SDK init failed"),
         isLoading: false,
         isInitialized: false,
       });

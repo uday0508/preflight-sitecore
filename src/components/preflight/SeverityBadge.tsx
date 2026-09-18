@@ -9,6 +9,7 @@ const VARIANT_MAP: Record<
   WARNING: "secondary",
   INFO: "outline",
   PASS: "default",
+  UNKNOWN: "outline",
 };
 
 export function SeverityBadge({ severity }: { severity: Severity }) {

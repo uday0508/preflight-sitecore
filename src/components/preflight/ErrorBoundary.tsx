@@ -2,13 +2,8 @@ import { Component, type ReactNode } from "react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
-interface Props {
-  children: ReactNode;
-}
-interface State {
-  hasError: boolean;
-  message: string;
-}
+interface Props { children: ReactNode }
+interface State { hasError: boolean; message: string }
 
 export class ErrorBoundary extends Component<Props, State> {
   state: State = { hasError: false, message: "" };
@@ -30,9 +25,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <Button
               size="sm"
               variant="outline"
-              onClick={() =>
-                this.setState({ hasError: false, message: "" })
-              }
+              onClick={() => this.setState({ hasError: false, message: "" })}
             >
               Try again
             </Button>

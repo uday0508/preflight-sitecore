@@ -6,15 +6,11 @@ import path from "path";
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
+    alias: { "@": path.resolve(__dirname, "./src") },
   },
   server: {
     port: 3000,
     host: true,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-    },
+    headers: { "Access-Control-Allow-Origin": "*" },
   },
 });

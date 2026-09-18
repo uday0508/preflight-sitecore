@@ -1,89 +1,36 @@
 export const GRAPHQL_QUERIES = {
-  getPageLayout: `
-    query GetPageLayout($pageId: ID!, $language: String!) {
-      item(where: { itemId: $pageId, database: "master", language: $language }) {
+  /**
+   * Item with all inherited fields — used only for tracking check.
+   */
+  getItemWithFields: `
+    query GetItemWithFields($itemId: ID!, $language: String!) {
+      item(
+        where: { itemId: $itemId, database: "master", language: $language }
+      ) {
         itemId
         name
         path
-        fields(ownFields: true, excludeStandardFields: true) {
-          nodes {
-            name
-            value
-          }
+        template { name templateId }
+        fields(ownFields: false, excludeStandardFields: false) {
+          nodes { name value }
         }
       }
     }
   `,
 
-  getPagePersonalization: `
-    query GetPagePersonalization($pageId: ID!, $language: String!) {
-      item(where: { itemId: $pageId, database: "master", language: $language }) {
-        itemId
-        name
-        fields(ownFields: true, excludeStandardFields: true) {
-          nodes {
-            name
-            value
-          }
-        }
-      }
-    }
-  `,
-
-  getPagePublishState: `
-    query GetPagePublishState($pageId: ID!, $language: String!) {
-      item(where: { itemId: $pageId, database: "master", language: $language }) {
+  /**
+   * Publish state — used for render drift check.
+   */
+  getItemPublishState: `
+    query GetItemPublishState($itemId: ID!, $language: String!) {
+      item(
+        where: { itemId: $itemId, database: "master", language: $language }
+      ) {
         itemId
         name
         path
         updated: field(name: "__Updated") { value }
         published: field(name: "__Published") { value }
-      }
-    }
-  `,
-
-  getComponentPersonalization: `
-    query GetComponentPersonalization($pageId: ID!, $language: String!) {
-      item(where: { itemId: $pageId, database: "master", language: $language }) {
-        itemId
-        name
-        children {
-          nodes {
-            itemId
-            name
-            template { name }
-            fields(ownFields: true, excludeStandardFields: true) {
-              nodes { name value }
-            }
-          }
-        }
-      }
-    }
-  `,
-
-  getPagesForScan: `
-    query GetPagesForScan {
-      search(
-        query: {
-          searchStatement: {
-            operator: MUST
-            subStatements: {
-              criteria: [
-                { criteriaType: SEARCH, field: "_templatename", value: "Page", operator: EQ }
-                { criteriaType: SEARCH, field: "_path", value: "/sitecore/content", operator: CONTAINS }
-              ]
-            }
-          }
-          paging: { pageSize: 20 }
-        }
-      ) {
-        results {
-          innerItem {
-            itemId
-            path
-            name
-          }
-        }
       }
     }
   `,

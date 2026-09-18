@@ -20,8 +20,7 @@ export function CustomFieldIndicator({ client }: { client: ClientSDK | null }) {
       }
 
       try {
-        const parsed =
-          typeof raw === "string" ? JSON.parse(raw) : raw;
+        const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
         const itemId = parsed?.itemId ?? parsed?.id;
         if (!itemId) {
           setStatus("UNKNOWN");
@@ -52,9 +51,7 @@ export function CustomFieldIndicator({ client }: { client: ClientSDK | null }) {
   return (
     <div className="flex items-center gap-2 p-2" title={message}>
       <Badge variant={variant[status]}>{status}</Badge>
-      <span className="truncate text-xs text-muted-foreground">
-        {message}
-      </span>
+      <span className="truncate text-xs text-muted-foreground">{message}</span>
     </div>
   );
 }

@@ -15,7 +15,6 @@ export function MarketplaceClientProvider({
   const [appContext, setAppContext] = useState<ApplicationContext | null>(null);
   const [pagesContext, setPagesContext] = useState<PagesContext | null>(null);
 
-  // Application context — available in every extension point
   useEffect(() => {
     if (!isInitialized || !client) return;
     let cancelled = false;
@@ -34,7 +33,6 @@ export function MarketplaceClientProvider({
     };
   }, [client, isInitialized]);
 
-  // Pages context — only available in Page Builder extension points
   useEffect(() => {
     if (!isInitialized || !client) return;
     let unsubscribe: (() => void) | undefined;
@@ -53,10 +51,7 @@ export function MarketplaceClientProvider({
         unsubscribe = unsub;
       })
       .catch((err) => {
-        console.warn(
-          "[Preflight] pages.context unavailable:",
-          err?.message ?? err
-        );
+        console.warn("[Preflight] pages.context unavailable:", err?.message ?? err);
       });
 
     return () => {

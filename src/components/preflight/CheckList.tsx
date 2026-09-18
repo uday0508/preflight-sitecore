@@ -6,7 +6,8 @@ const SEVERITY_ORDER: Record<Severity, number> = {
   BLOCKER: 0,
   WARNING: 1,
   INFO: 2,
-  PASS: 3,
+  UNKNOWN: 3,
+  PASS: 4,
 };
 
 export function CheckList({

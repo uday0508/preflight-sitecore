@@ -37,11 +37,14 @@ export default function PagesContextPanel() {
     );
   }
 
+  const pageName =
+    (pagesContext as any)?.pageInfo?.name ?? "Current page";
+
   return (
     <ErrorBoundary>
       <PagePreflightPanel
         results={results}
-        pagesContext={pagesContext}
+        pageName={pageName}
         onRerun={rerun}
         isRerunning={isRerunning}
       />
