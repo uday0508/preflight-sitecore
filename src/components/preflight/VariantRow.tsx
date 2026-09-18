@@ -14,7 +14,7 @@ export function VariantRow({ variant }: { variant: VariantDisplay }) {
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
+          <div className="flex items-baseline gap-2 flex-wrap">
             <span
               className={cn(
                 "text-xs font-semibold",
@@ -23,10 +23,17 @@ export function VariantRow({ variant }: { variant: VariantDisplay }) {
             >
               {variant.label}
             </span>
-            <span className="text-[11px] text-slate-400">
-              {variant.isDefault ? "Everyone" : variant.audience}
+            <span className="text-[11px] text-slate-500">
+              {variant.audience}
             </span>
           </div>
+
+          {variant.condition && (
+            <div className="mt-0.5 text-[10px] uppercase tracking-wide text-slate-400">
+              {variant.condition}
+            </div>
+          )}
+
           <div
             className={cn(
               "mt-1 text-xs",
@@ -40,17 +47,6 @@ export function VariantRow({ variant }: { variant: VariantDisplay }) {
             {isHidden ? "Hides this component" : `Sees: ${variant.outcome}`}
           </div>
         </div>
-
-        {variant.personalizeUrl && (
-          <a
-            href={variant.personalizeUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="shrink-0 rounded border border-slate-200 px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
-          >
-            Edit →
-          </a>
-        )}
       </div>
     </div>
   );

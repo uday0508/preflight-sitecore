@@ -72,16 +72,39 @@ export function CheckRow({ result }: { result: PreflightResult }) {
       {expanded && hasDetail && (
         <div className="space-y-3 pb-3 pl-8 pr-1">
           {isPersonalization
-            ? result.items.map((item) => (
-                <div key={item.id} className="space-y-1.5">
-                  <div className="text-xs font-medium text-slate-700">
-                    {item.name}
+            ? result.items.map((item) => {
+                const editUrl = item.variants?.find(
+                  (v) => v.personalizeUrl
+                )?.personalizeUrl;
+
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-md border border-slate-200 bg-slate-50/50 p-2"
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="text-xs font-medium text-slate-700">
+                        {item.name}
+                      </div>
+                      {editUrl && (
+                        <a
+                          href={editUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="shrink-0 rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+                        >
+                          Edit →
+                        </a>
+                      )}
+                    </div>
+                    <div className="space-y-1.5">
+                      {item.variants?.map((v, i) => (
+                        <VariantRow key={i} variant={v} />
+                      ))}
+                    </div>
                   </div>
-                  {item.variants?.map((v, i) => (
-                    <VariantRow key={i} variant={v} />
-                  ))}
-                </div>
-              ))
+                );
+              })
             : result.items.map((item) => (
                 <div
                   key={item.id}

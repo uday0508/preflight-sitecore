@@ -15,10 +15,6 @@ export interface PreflightContext {
   tenantName: string | null;
 }
 
-/**
- * Extracts all context values the app needs in one place so every
- * consumer sees the same data.
- */
 export function derivePreflightContext(
   appContext: ApplicationContext | null,
   pagesContext: PagesContext | null
@@ -39,7 +35,6 @@ export function derivePreflightContext(
     null;
 
   const organizationId = (appContext as any)?.organizationId ?? null;
-
   const tenantName = extractTenantName((appContext as any)?.url ?? "");
 
   return {
@@ -55,11 +50,6 @@ export function derivePreflightContext(
   };
 }
 
-/**
- * The tenant name is not exposed as a top-level field on
- * application.context in all SDK versions. It usually appears
- * in the app URL as a query param.
- */
 function extractTenantName(url: string): string | null {
   if (!url) return null;
   try {

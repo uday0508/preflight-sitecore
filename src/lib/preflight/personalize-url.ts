@@ -1,18 +1,3 @@
-/**
- * Builds a deep link to the Sitecore Pages personalization panel
- * for a specific page. Uses the same URL shape the Pages editor
- * uses internally when opening the Personalize tab.
- *
- * Example URL:
- *   https://pages.sitecorecloud.io/personalization
- *     ?sc_itemid=431cae67-1645-4d65-a57b-c794638f7108
- *     &sc_lang=en
- *     &sc_site=starterkit
- *     &organization=org_NX2CTeF32dHRDNDq
- *     &tenantName=biztechnosyc333-bizstarterk8ff7-dev96b0
- *     &sc_version=1
- */
-
 export interface PersonalizeUrlContext {
   pageId: string | null;
   language: string | null;

@@ -10,6 +10,7 @@ import {
 } from "./parser";
 import { diag, dumpCheckResult } from "./diagnostics";
 import { buildPersonalizeUrl } from "./personalize-url";
+import { resolveVariantMappings } from "./personalize-resolver";
 import type { PreflightContext } from "./context";
 
 const now = () => new Date().toISOString();
@@ -45,17 +46,14 @@ function getField(item: any, fieldName: string, alias?: string): string | null {
   return match?.value ?? null;
 }
 
-/**
- * Reads the raw actions and produces a human-readable summary of what
- * this variant changes. Uses rendering parameters (FormId, Styles)
- * and datasource paths that are already meaningful to marketers.
- */
 function summarizeOutcome(rawActions: any[]): string {
   if (!Array.isArray(rawActions) || rawActions.length === 0) {
     return "Same as default";
   }
 
   const parts: string[] = [];
+  let hasContent = false;
+  let hasForm = false;
 
   for (const action of rawActions) {
     const id = action?.id;
@@ -75,27 +73,27 @@ function summarizeOutcome(rawActions: any[]): string {
           .replace(/^local:\/?\/?Data\//i, "")
           .replace(/^local:\/?/, "");
         parts.push(`content "${name}"`);
-      } else if (typeof ds === "string" && /^[0-9a-f-]{36}$/i.test(ds)) {
-        parts.push("different content");
+        hasContent = true;
       }
-    }
-
-    if (id === "{7B578B65-BD2F-4C7C-9A24-DAE3E98B4F23}") {
-      parts.push("different component");
     }
 
     if (id === "{525C7B5A-8FD2-4B99-89F6-4F3F6D23BB02}") {
       const params = action?.renderingParameters ?? {};
       if (params.FormId) {
         parts.push(`form ${String(params.FormId).split("-")[0]}`);
+        hasForm = true;
       }
-      if (params.Styles) parts.push(`style "${params.Styles}"`);
-      if (params.CSSStyles) parts.push(`css "${params.CSSStyles}"`);
+    }
+
+    if (id === "{7B578B65-BD2F-4C7C-9A24-DAE3E98B4F23}") {
+      if (!hasContent && !hasForm) {
+        parts.push("different component");
+      }
     }
   }
 
   const unique = Array.from(new Set(parts));
-  return unique.length > 0 ? unique.join(" · ") : "Same as default";
+  return unique.length > 0 ? unique.join(" + ") : "Same as default";
 }
 
 /* ------------------------------------------------------------------ */
@@ -208,7 +206,10 @@ export async function checkPagePersonalization(
     return result;
   }
 
-  // The personalize URL is page-scoped — same for every variant on the page.
+  const variantMap = context.pageId
+    ? await resolveVariantMappings(client, sitecoreContextId, context.pageId)
+    : new Map();
+
   const personalizeUrl = buildPersonalizeUrl({
     pageId: context.pageId,
     language: context.language,
@@ -245,14 +246,16 @@ export async function checkPagePersonalization(
 
     nonDefault.forEach((v, idx) => {
       const letter = String.fromCharCode(65 + idx);
-      const outcome = summarizeOutcome(v.rawActions);
+      const mapping = variantMap.get(v.id);
+      const fallbackAudience = `Audience ${idx + 1}`;
 
       variantDisplays.push({
-        label: `Variant ${letter}`,
-        audience: v.audienceHint ?? "Targeted visitors",
-        outcome,
+        label: mapping?.variantName ?? `Variant ${letter}`,
+        audience: mapping?.audienceName ?? fallbackAudience,
+        outcome: summarizeOutcome(v.rawActions),
         isDefault: false,
         personalizeUrl,
+        condition: mapping?.conditionSummary,
       });
     });
 
@@ -295,6 +298,7 @@ export async function checkPagePersonalization(
   dumpCheckResult(result.checkId, result);
   return result;
 }
+
 /* ------------------------------------------------------------------ */
 /* CHECK 3 — Analytics tracking                                        */
 /* ------------------------------------------------------------------ */

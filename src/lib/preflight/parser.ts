@@ -179,7 +179,9 @@ export function parsePresentationDetails(
               rule?.conditions ?? ""
             );
             const isDefault = rule?.uniqueId === DEFAULT_VARIANT_UID;
-            const rawActions = Array.isArray(rule?.actions) ? rule.actions : [];
+            const rawActions = Array.isArray(rule?.actions)
+              ? rule.actions
+              : [];
             return {
               id: variantId ?? rule?.uniqueId ?? "unknown",
               name: rule?.name ?? variantId ?? "Unnamed variant",

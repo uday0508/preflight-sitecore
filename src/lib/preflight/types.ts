@@ -3,11 +3,12 @@ export type Severity = "BLOCKER" | "WARNING" | "INFO" | "PASS" | "UNKNOWN";
 export type Verdict = "ready" | "attention" | "blocked";
 
 export interface VariantDisplay {
-  label: string;        // "Variant A", "Variant B", ...
-  audience: string;     // audience hint or "Targeted visitors"
-  outcome: string;      // "form 1a21b07b · different component"
+  label: string;
+  audience: string;
+  outcome: string;
   isDefault: boolean;
-  personalizeUrl: string | null;  // deep link
+  personalizeUrl: string | null;
+  condition?: string;
 }
 
 export interface CheckItem {
