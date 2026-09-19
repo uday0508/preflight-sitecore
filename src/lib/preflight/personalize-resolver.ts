@@ -8,106 +8,64 @@ export interface VariantMapping {
   conditionSummary: string;
 }
 
-const CDP_DIRECT_BASE = "https://api-sg-cdpp.sitecorecloud.io";
-const CDP_PROXY_BASE = "/api/cdp";
-
 export async function resolveVariantMappings(
   client: ClientSDK,
   sitecoreContextId: string,
   pageId: string
 ): Promise<Map<string, VariantMapping>> {
-  const params = new URLSearchParams({
-    flowType: "component,embedded",
-    limit: "1000",
-    offset: "0",
-    expand: "true",
-    search: pageId.replace(/-/g, ""),
-  });
-
-  const query = params.toString();
-
-  // Path 1 — proxy (dev)
-  const proxyResult = await tryFetch(
-    `${CDP_PROXY_BASE}/v3/flowDefinitions/?${query}`,
-    "proxy"
-  );
-  if (proxyResult) return buildMap(proxyResult);
-
-  // Path 2 — direct (production, only if CORS allows)
-  const directResult = await tryFetch(
-    `${CDP_DIRECT_BASE}/v3/flowDefinitions/?${query}`,
-    "direct",
-    { "x-sitecore-contextid": sitecoreContextId }
-  );
-  if (directResult) return buildMap(directResult);
-
-  diag.warn(
-    "CDP variant resolution unavailable — falling back to generic labels"
-  );
-  return new Map();
-}
-
-async function tryFetch(
-  url: string,
-  mode: string,
-  extraHeaders: Record<string, string> = {}
-): Promise<any | null> {
-  try {
-    diag.log(`CDP fetch [${mode}]`, url);
-    const response = await fetch(url, {
-      method: "GET",
-      headers: { Accept: "application/json", ...extraHeaders },
-    });
-
-    if (!response.ok) {
-      diag.warn(`CDP [${mode}] returned ${response.status}`);
-      return null;
-    }
-
-    const payload = await response.json();
-    diag.log(`CDP [${mode}] returned ${payload?.items?.length ?? 0} items`);
-    return payload;
-  } catch (err) {
-    diag.warn(`CDP [${mode}] failed`, err);
-    return null;
-  }
-}
-
-function buildMap(payload: any): Map<string, VariantMapping> {
   const result = new Map<string, VariantMapping>();
-  const items = payload?.items ?? [];
 
-  for (const flow of items) {
-    const splits = flow?.traffic?.splits ?? [];
-    for (const split of splits) {
+  try {
+    diag.log(`fetching personalization versions for page ${pageId.slice(0, 8)}`);
+
+    const { data } = await client.query(
+      "xmc.agent.personalizationGetPersonalizationVersionsByPage",
+      {
+        params: {
+          query: { sitecoreContextId },
+          path: { pageId },
+        },
+      }
+    );
+
+    const payload = data as any;
+    const items = payload?.data ?? [];
+
+    diag.log(`Agent API returned ${items.length} personalization versions`);
+
+    for (const item of items) {
       let variantId: string | null = null;
       try {
-        const parsed = JSON.parse(split.template ?? "{}");
+        const parsed = JSON.parse(item.template ?? "{}");
         variantId = parsed.variantId ?? null;
       } catch {
         continue;
       }
+
       if (!variantId) continue;
 
       result.set(variantId, {
         variantId,
-        variantName: split.variantName ?? "Unnamed variant",
-        audienceName: split.audienceName ?? split.variantName ?? "Audience",
-        conditionSummary: summarizeConditions(split.conditionGroups),
+        variantName: item.variant_name ?? "Unnamed variant",
+        audienceName: item.audience_name ?? item.variant_name ?? "Audience",
+        conditionSummary: summarizeConditions(item.condition_groups),
       });
     }
+
+    diag.table(
+      "Personalization variant mappings",
+      Array.from(result.values()).map((v) => ({
+        variantId: v.variantId.slice(0, 8),
+        name: v.variantName,
+        condition: v.conditionSummary,
+      }))
+    );
+
+    return result;
+  } catch (err) {
+    diag.warn("Agent API personalization fetch failed", err);
+    return result;
   }
-
-  diag.table(
-    "CDP variant mappings",
-    Array.from(result.values()).map((v) => ({
-      variantId: v.variantId.slice(0, 8),
-      name: v.variantName,
-      condition: v.conditionSummary,
-    }))
-  );
-
-  return result;
 }
 
 function summarizeConditions(conditionGroups: any[]): string {
@@ -116,16 +74,24 @@ function summarizeConditions(conditionGroups: any[]): string {
   }
 
   const parts: string[] = [];
+
   for (const group of conditionGroups) {
     for (const condition of group?.conditions ?? []) {
-      if (condition?.templateId === "utm_value") {
-        const type = condition.params?.type ?? "source";
-        const value = condition.params?.["UTM value"] ?? "";
+      const templateId = condition?.templateId;
+      const params = condition?.params ?? {};
+
+      if (templateId === "utm_value") {
+        const type = params["type"] ?? "source";
+        const value = params["UTM value"] ?? "";
         if (value) parts.push(`UTM ${type} = ${value}`);
-      } else if (condition?.templateId) {
-        parts.push(condition.templateId);
+      } else if (templateId === "new_or_returning_visitor") {
+        const type = params["type"] ?? "new";
+        parts.push(type === "new" ? "First-time visitors" : "Returning visitors");
+      } else if (templateId) {
+        parts.push(templateId.replace(/_/g, " "));
       }
     }
   }
+
   return parts.length > 0 ? parts.join(" · ") : "Always";
 }
